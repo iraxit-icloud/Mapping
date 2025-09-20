@@ -1,7 +1,8 @@
-
 import Foundation
 import ARKit
 import AVFoundation
+
+// MARK: - Scan State & Metrics
 
 enum ScanState: Equatable {
     case idle
@@ -12,20 +13,20 @@ enum ScanState: Equatable {
 }
 
 struct ScanQualityMetrics: Equatable {
-    // Already present
+    // ARKit health
     var worldMappingStatus: ARFrame.WorldMappingStatus = .notAvailable
     var featurePointCount: Int = 0
     var secondsElapsed: TimeInterval = 0
 
-    // NEW: Grid coverage (your 2D map)
-    var gridFilledCells: Int = 0        // cells marked free/occupied (not unknown)
-    var gridTotalCells: Int = 0         // total cells in map grid
+    // Grid coverage (your 2D Map2D grid)
+    var gridFilledCells: Int = 0
+    var gridTotalCells: Int = 0
     var coveragePercent: Int {
         guard gridTotalCells > 0 else { return 0 }
         return min(100, Int((Double(gridFilledCells) / Double(gridTotalCells)) * 100.0))
     }
 
-    // Tracking sub-score (0–100), same as you have (tweak weights if you’d like)
+    // Tracking sub-score (0–100)
     var trackingScore: Int {
         var score = 0
         switch worldMappingStatus {
@@ -43,33 +44,31 @@ struct ScanQualityMetrics: Equatable {
         return min(100, score)
     }
 
-    // NEW: Combine both into ONE bar users can trust
-    // Weighting: 60% tracking + 40% coverage (tune to taste)
+    // Unified readiness score: 60% tracking + 40% coverage
     var overallScore: Int {
         let s = 0.6 * Double(trackingScore) + 0.4 * Double(coveragePercent)
         return min(100, Int(s.rounded()))
     }
 
-    // Gate "Finish & Save" on BOTH tracking and coverage
+    // Gate to enable Finish & Save
     var meetsSaveThreshold: Bool {
-        // Tracking must be decent
         let okTracking = (worldMappingStatus == .mapped || worldMappingStatus == .extending)
                           && featurePointCount >= 2000
                           && secondsElapsed >= 8
-        // Coverage must be non-trivial (e.g., 25%+)
-        let okCoverage = coveragePercent >= 25
+        let okCoverage = coveragePercent >= 25 // tune
         return okTracking && okCoverage
     }
 }
 
+// MARK: - Voice
 
 final class VoiceFeedback {
     static let shared = VoiceFeedback()
     private let synth = AVSpeechSynthesizer()
     func say(_ text: String) {
-        let utter = AVSpeechUtterance(string: text)
-        utter.voice = AVSpeechSynthesisVoice(language: Locale.current.identifier)
-        utter.rate = AVSpeechUtteranceDefaultSpeechRate
-        synth.speak(utter)
+        let u = AVSpeechUtterance(string: text)
+        u.voice = AVSpeechSynthesisVoice(language: Locale.current.identifier)
+        u.rate = AVSpeechUtteranceDefaultSpeechRate
+        synth.speak(u)
     }
 }

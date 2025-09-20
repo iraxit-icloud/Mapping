@@ -1,6 +1,6 @@
 import SwiftUI
 
-// ========= ScanView (unchanged from crosshair version) =========
+// ========= ScanView (with crosshair + HUD) =========
 
 struct ScanView: View {
     @StateObject var vm = ScanViewModel()
@@ -11,16 +11,15 @@ struct ScanView: View {
                 ARViewContainer(vm: vm)
 
                 // HUD overlay
-                ScanHUD(vm: vm)
+                ScanHUD(vm: vm, showPlacementButtons: true)
 
                 // Crosshair overlay
                 CrosshairView(state: vm.crosshair)
                     .allowsHitTesting(false)
                     .buttonStyle(.bordered)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .padding()
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .padding()
 
             Divider()
 
@@ -47,7 +46,6 @@ struct ScanView: View {
             .padding(.horizontal)
             .padding(.bottom, 8)
         }
-        .navigationTitle("Scan 2D Map")
     }
 }
 
@@ -77,13 +75,12 @@ struct CrosshairView: View {
 
 struct MapListView: View {
     @State private var maps: [Map2D] = []
-    @State private var editing: Map2D?
-    // NEW: state for JSON preview
+    @State private var editing: Bool = false
     private struct JSONPreviewItem: Identifiable { let id = UUID(); let url: URL }
     @State private var jsonPreview: JSONPreviewItem?
 
     var body: some View {
-        List(maps) { m in
+        List(maps, id: \.id) { m in
             HStack {
                 VStack(alignment: .leading) {
                     Text(m.title).font(.headline)
@@ -93,14 +90,12 @@ struct MapListView: View {
                 }
                 Spacer()
 
-                // Share PNG
                 if let pngURL = try? MapStorage.pngURL(for: m.id) {
                     ShareLink(item: pngURL) { Image(systemName: "photo") }
                         .buttonStyle(.borderless)
                         .help("Share PNG snapshot")
                 }
 
-                // NEW: view JSON in-app
                 if let jsonURL = try? MapStorage.jsonURL(for: m.id) {
                     Button {
                         jsonPreview = JSONPreviewItem(url: jsonURL)
@@ -109,41 +104,21 @@ struct MapListView: View {
                     }
                     .buttonStyle(.borderless)
                     .help("View JSON")
-                    // Also add a ShareLink for raw JSON if you want:
-                    // ShareLink(item: jsonURL) { Image(systemName: "square.and.arrow.up") }.buttonStyle(.borderless)
                 }
 
-                // Edit map
                 Button {
-                    editing = m
+                    editing = true
                 } label: {
                     Image(systemName: "pencil")
                 }
                 .buttonStyle(.borderless)
             }
         }
-        // Editor sheet (unchanged except Close fix you applied)
-        .sheet(item: $editing) { map in
-            NavigationStack {
-                MapEditorView(vm: .init(map: map)) { updated in
-                    do {
-                        try MapStorage.save(updated)
-                        if let png = MapSnapshot.png(from: updated) {
-                            try png.write(to: try MapStorage.pngURL(for: updated.id), options: .atomic)
-                        }
-                        if let svg = MapSnapshot.svg(from: updated) {
-                            try svg.write(to: try MapStorage.svgURL(for: updated.id), options: .atomic)
-                        }
-                        editing = nil
-                        reload()
-                    } catch {
-                        // Optional: alert
-                    }
-                }
-                .navigationBarItems(leading: Button("Close") { editing = nil })
-            }
+        // Editor sheet — now just shows MapEditorView with no args
+        .sheet(isPresented: $editing) {
+            MapEditorView()
         }
-        // NEW: JSON viewer sheet
+        // JSON viewer sheet
         .sheet(item: $jsonPreview) { item in
             NavigationStack {
                 JSONViewerView(fileURL: item.url)
@@ -157,15 +132,13 @@ struct MapListView: View {
                 Image(systemName: "arrow.clockwise")
             }
         )
-
     }
 
     private func reload() {
-        let ids = (try? MapStorage.list()) ?? []
+        let ids = (try? MapStorage.listSavedMaps()) ?? []   // ⚡ make sure MapStorage has this
         maps = ids.compactMap { try? MapStorage.load(id: $0) }
     }
 }
-
 
 // ========= App entry =========
 
@@ -181,6 +154,8 @@ struct ContentView: View {
     }
 }
 
+// ========= JSON Viewer =========
+
 struct JSONViewerView: View {
     let fileURL: URL
     @State private var text: String = ""
@@ -193,7 +168,6 @@ struct JSONViewerView: View {
                     .foregroundStyle(.red)
                     .padding()
             } else {
-                // Read-only viewer (monospaced)
                 ScrollView {
                     Text(text)
                         .font(.system(.body, design: .monospaced))

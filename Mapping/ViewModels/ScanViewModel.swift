@@ -18,7 +18,7 @@ final class ScanViewModel: NSObject, ObservableObject, ARSessionDelegate {
     // Coaching voice timer
     private var coachingTimer: Timer?
 
-    // Crosshair / placement (unchanged if you already have it)
+    // Crosshair / placement
     enum PlacementMode: Equatable { case none, beacon, doorwayStart, doorwayEnd(start: SIMD2<Float>) }
     @Published var placementMode: PlacementMode = .none
 
@@ -80,7 +80,7 @@ final class ScanViewModel: NSObject, ObservableObject, ARSessionDelegate {
         status = "Stopped."
     }
 
-    // === New flow methods for HUD ===
+    // === HUD flow ===
 
     func startScanningFlow() {
         VoiceFeedback.shared.say("Ready to scan. Move slowly and look at floors and walls.")
@@ -100,7 +100,7 @@ final class ScanViewModel: NSObject, ObservableObject, ARSessionDelegate {
         VoiceFeedback.shared.say("Map saved successfully.")
     }
 
-    // MARK: - Tap & Crosshair (if you use these)
+    // MARK: - Tap & Crosshair
 
     func beginBeaconPlacement() { placementMode = .beacon; status = "Aim at FLOOR (green) and tap." }
     func beginDoorwayPlacement() { placementMode = .doorwayStart; status = "Aim at WALL (blue) and tap first side." }
@@ -146,10 +146,10 @@ final class ScanViewModel: NSObject, ObservableObject, ARSessionDelegate {
         crosshair = .none
     }
 
-    // MARK: - ARSessionDelegate (Swift 6 nonisolated + hop)
+    // MARK: - ARSessionDelegate
 
     nonisolated func session(_ session: ARSession, didUpdate frame: ARFrame) {
-        // Update quality metrics (do not retain frame)
+        // Update metrics (do not retain frame)
         Task { @MainActor in
             if let start = self.scanStartDate {
                 self.metrics.secondsElapsed = Date().timeIntervalSince(start)
@@ -163,7 +163,6 @@ final class ScanViewModel: NSObject, ObservableObject, ARSessionDelegate {
             if self.floorY == nil {
                 switch frame.camera.trackingState {
                 case .normal:
-                    // Try to lock floor once tracking is good
                     self.tryLockFloor(from: frame)
                 case .limited(let reason):
                     self.status = "Tracking limited: \(reason.localizedDescription). Move slowly."
@@ -174,7 +173,6 @@ final class ScanViewModel: NSObject, ObservableObject, ARSessionDelegate {
         }
     }
 
-    // ARKit provides this delegate for state changes (keeps status responsive)
     nonisolated func session(_ session: ARSession, cameraDidChangeTrackingState camera: ARCamera) {
         Task { @MainActor in
             guard self.floorY == nil else { return }
@@ -195,7 +193,7 @@ final class ScanViewModel: NSObject, ObservableObject, ARSessionDelegate {
                 self.project(mesh: mesh, wrote: &wrote)
             }
             if wrote > 0 {
-                // (2) Recompute coverage metrics whenever grid changes
+                // Recompute coverage metrics whenever grid changes
                 self.recomputeCoverageMetrics()
 
                 self.status = self.floorY == nil
@@ -205,40 +203,31 @@ final class ScanViewModel: NSObject, ObservableObject, ARSessionDelegate {
         }
     }
 
-    // MARK: - Robust floor locking
+    // MARK: - Floor locking
 
     private func tryLockFloor(from frame: ARFrame) {
-        // 1) Downward raycast from screen center to horizontal (estimated allowed)
         if let floorHitY = raycastDownY(from: frame) {
             pushFloorSample(floorHitY)
         }
-
-        // 2) Fallbacks: planes labeled floor; else lowest horizontal plane
         if floorY == nil {
             let planes = frame.anchors
                 .compactMap { $0 as? ARPlaneAnchor }
                 .filter { $0.alignment == .horizontal }
 
-            // Prefer explicitly-classified floor when available
             if #available(iOS 13.4, *) {
                 if let floorPlane = planes.first(where: { $0.classification == .floor }) {
                     floorY = floorPlane.transform.columns.3.y
                 }
             }
-
-            // If still not set, pick the lowest horizontal plane we see
             if floorY == nil, let lowest = planes.min(by: {
                 $0.transform.columns.3.y < $1.transform.columns.3.y
             }) {
                 floorY = lowest.transform.columns.3.y
             }
         }
-
-        // 3) Decide if we have stable samples
         if floorY == nil, floorSamples.count >= 10 {
             let (_, var_) = meanAndVariance(floorSamples)
             if var_ <= floorVarianceThreshold {
-                // Stable enough — lock
                 floorY = median(floorSamples)
                 let cam = frame.camera.transform.columns.3
                 currentMap.spec.originWorldXZ =
@@ -251,7 +240,6 @@ final class ScanViewModel: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     private func raycastDownY(from frame: ARFrame) -> Float? {
-        // screen center
         let size = frame.camera.imageResolution
         let center = CGPoint(x: CGFloat(size.width)/2.0, y: CGFloat(size.height)/2.0)
         let q = frame.raycastQuery(from: center, allowing: .estimatedPlane, alignment: .horizontal)
@@ -265,7 +253,7 @@ final class ScanViewModel: NSObject, ObservableObject, ARSessionDelegate {
         if floorSamples.count > maxFloorSamples { floorSamples.removeFirst(floorSamples.count - maxFloorSamples) }
     }
 
-    // MARK: - Mesh → Grid (vertex-based rasterization)
+    // MARK: - Mesh → Grid
 
     private func project(mesh: ARMeshAnchor, wrote: inout Int) {
         let geom = mesh.geometry
@@ -282,7 +270,6 @@ final class ScanViewModel: NSObject, ObservableObject, ARSessionDelegate {
             let wp4 = transform * SIMD4<Float>(pLocal.x, pLocal.y, pLocal.z, 1.0)
             let wp = SIMD3<Float>(wp4.x, wp4.y, wp4.z)
 
-            // upper-left 3x3 for normal
             let m3 = simd_float3x3(
                 SIMD3<Float>(transform.columns.0.x, transform.columns.0.y, transform.columns.0.z),
                 SIMD3<Float>(transform.columns.1.x, transform.columns.1.y, transform.columns.1.z),
@@ -290,8 +277,7 @@ final class ScanViewModel: NSObject, ObservableObject, ARSessionDelegate {
             )
             let nWorld = simd_normalize(m3 * nLocal)
 
-            // vertical surfaces are walls
-            if abs(nWorld.y) < 0.35 {
+            if abs(nWorld.y) < 0.35 { // vertical = wall
                 let gx = Int((wp.x - currentMap.spec.originWorldXZ.x) / currentMap.spec.resolution)
                 let gy = Int((wp.z - currentMap.spec.originWorldXZ.y) / currentMap.spec.resolution)
                 if gx >= 0, gy >= 0, gx < currentMap.spec.width, gy < currentMap.spec.height {
@@ -411,9 +397,9 @@ final class ScanViewModel: NSObject, ObservableObject, ARSessionDelegate {
         return SIMD2<Float>(m.columns.3.x, m.columns.3.z)
     }
 
-    // MARK: - Metrics helpers (NEW)
+    // MARK: - Metrics helpers
 
-    /// (2) Recompute coverage based on your Map2D grid.
+    /// Recompute coverage based on your Map2D grid.
     private func recomputeCoverageMetrics() {
         let total = currentMap.grid.count
         guard total > 0 else {
@@ -421,27 +407,31 @@ final class ScanViewModel: NSObject, ObservableObject, ARSessionDelegate {
             metrics.gridFilledCells = 0
             return
         }
+
         var filled = 0
         for cell in currentMap.grid {
-            switch cell {
-            case .unknown:
-                break
-            default:
-                filled += 1
-            }
+            // Count any mapped cell as filled.
+            if cell == .wall { filled += 1 }
+            else if cell == .free { filled += 1 }
+            // Add more cases here if your enum has them (e.g., .floor, .occupied, etc.)
         }
+
         metrics.gridTotalCells  = total
         metrics.gridFilledCells = filled
     }
 
-    // (4) Unified voice coaching every ~3s
+
+    // Unified voice coaching every ~3s
     private func startCoachingTimer() {
         coachingTimer?.invalidate()
         coachingTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            self.speakCoachingTick()
+            guard let self = self else { return }
+            Task { @MainActor in
+                self.speakCoachingTick()
+            }
         }
     }
+
 
     private func stopCoachingTimer() {
         coachingTimer?.invalidate()

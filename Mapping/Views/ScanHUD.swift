@@ -1,14 +1,14 @@
-
 import SwiftUI
 
 struct ScanHUD: View {
     @ObservedObject var vm: ScanViewModel
+    var showPlacementButtons: Bool = true
 
     var body: some View {
         VStack {
             // Metrics card
             VStack(alignment: .leading, spacing: 8) {
-                Text("Scan readiness \(vm.metrics.overallScore)%")
+                Text(title)
                     .font(.headline)
 
                 // Single overall progress bar
@@ -22,20 +22,37 @@ struct ScanHUD: View {
                     // Coverage submetric
                     Text("Coverage: \(vm.metrics.coveragePercent)%")
                     Spacer()
-                    // Nice to keep raw counters for devs
+                    // Helpful raw counters for devs
                     Text("Pts: \(vm.metrics.featurePointCount)")
                     Text(String(format: "Time: %.0fs", vm.metrics.secondsElapsed))
                 }
                 .font(.caption)
             }
-
             .padding()
             .background(.ultraThinMaterial)
             .cornerRadius(12)
 
             Spacer()
 
-            // Buttons
+            // Optional placement toolbar during scanning (after floor lock)
+            if showPlacementButtons, vm.scanState == .scanning, vm.floorY != nil {
+                HStack(spacing: 12) {
+                    Button {
+                        vm.beginBeaconPlacement()
+                    } label: {
+                        Label("Add Beacon", systemImage: "mappin.circle")
+                    }
+                    Button {
+                        vm.beginDoorwayPlacement()
+                    } label: {
+                        Label("Add Doorway", systemImage: "door.left.hand.open")
+                    }
+                }
+                .buttonStyle(.bordered)
+                .padding(.bottom, 8)
+            }
+
+            // Primary buttons
             HStack(spacing: 12) {
                 if vm.scanState == .idle {
                     Button { vm.startScanningFlow() } label: { label("Start", "play.circle.fill") }
@@ -64,21 +81,11 @@ struct ScanHUD: View {
 
     private var title: String {
         switch vm.scanState {
-        case .idle: return "Ready to Scan"
-        case .scanning: return "Scanning… Quality \(vm.metrics.readinessScore)%"
+        case .idle:       return "Ready to Scan"
+        case .scanning:   return "Scanning… Quality \(vm.metrics.overallScore)%"
         case .finalizing: return "Finalizing…"
-        case .saved: return "Saved"
-        case .error: return "Error"
-        }
-    }
-
-    private var statusText: String {
-        switch vm.metrics.worldMappingStatus {
-        case .notAvailable: return "N/A"
-        case .limited:     return "Limited"
-        case .extending:   return "Extending"
-        case .mapped:      return "Mapped"
-        @unknown default:  return "Unknown"
+        case .saved:      return "Saved"
+        case .error:      return "Error"
         }
     }
 
