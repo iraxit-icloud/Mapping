@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Standard app info -->
+    <key>CFBundleName</key>
+    <string>Indoor2DMaps</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.yourdomain.Indoor2DMaps</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+
+    <!-- Camera access for AR -->
+    <key>NSCameraUsageDescription</key>
+    <string>This app uses the camera to scan the environment and build a 2D map.</string>
+
+    <!-- Motion access if you later use CoreMotion for heading alignment -->
+    <key>NSMotionUsageDescription</key>
+    <string>This app uses motion data to improve indoor navigation accuracy.</string>
+
+    <!-- Location is optional: only needed if you later add GPS context -->
+    <!--
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Needed to align indoor maps with real-world locations.</string>
+    -->
+
+    <!-- ARKit requires metal (SceneKit/ARSCNView uses it automatically) -->
+    <key>UIRequiredDeviceCapabilities</key>
+    <array>
+        <string>arkit</string>
+        <string>metal</string>
+    </array>
+
+    <!-- Make sure app starts in portrait but supports all orientations -->
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+</dict>
+</plist>
